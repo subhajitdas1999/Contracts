@@ -44,7 +44,7 @@ contract Wallet is Allowence{
    event moneySent(address _to,uint _amount);
 
 
-   function withdrawMOney(address payable _to , uint _amount) external ownerOrallowence(_amount){
+   function withdrawMoney(address payable _to , uint _amount) external ownerOrallowence(_amount){
        require (address(this).balance >= _amount,"Not enough funds to the contract");
        if(!isOwner()){
            reduceAllowence(msg.sender,_amount);
