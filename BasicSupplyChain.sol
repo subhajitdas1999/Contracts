@@ -1,85 +1,94 @@
-// SPDX-License-Identifier: GPL-3.0
-pragma solidity >=0.7.1 <0.9.0;
+// SPDX-License-Identifier: MIT
+
+pragma solidity >=0.7.0 <0.9.0;
 
 contract Ownable{
-    address  public  owner;
-
+    address payable public owner;
     constructor(){
-        owner = msg.sender;
+        owner=payable(msg.sender);
     }
 
-    modifier onlyOwner{
-        require(owner == msg.sender,"Only Owner is allowed");
+    modifier onlyOwner(){
+        require(isOwner(),"Owner is required");
         _;
     }
 
     function isOwner() public view returns(bool){
-        return (owner == msg.sender);
+        return msg.sender == owner;
     }
 }
 
-//contract Item is responsible for taking the payment and handling the payment back
-//over to the ItemManager, So when we create an Item then we create a new instance of
-//Item Contract
-//Every time we create a smart contract , It's gets its own address 
-contract Item {
+contract Item{
     uint public priceInWei;
-    uint public index;
     uint public pricePaid;
+    uint public index;
 
     ItemManager parentContract;
-    constructor(ItemManager _parentContract,uint _index,uint _priceInWei){
+
+    constructor (ItemManager _parentContract,uint _priceInWei,uint _index){
+        parentContract = _parentContract;
         priceInWei = _priceInWei;
         index = _index;
-        parentContract = _parentContract;
     }
 
     receive() external payable{
-        require(priceInWei == msg.value,"We accept full payment");
-        require(pricePaid==0,"Amount already paid");
-       (bool success,)=address(parentContract).call{value:msg.value}(abi.encodeWithSignature("triggerPayment(uint256)",index));
-        require(success,"Transaction wasn't successfull ");
+        require(pricePaid ==0,"Item is already paid");
+        require(priceInWei == msg.value,"only full payment accepted");
+        //payable(address(parentContract)).transfer(msg.value);
+        //you only send gas depend (2300) and we cannot do anything with that(update data etc)
+        //from item we want more gas available in order to use trigger payment function
+        //thats why we are using low label function
+        ///////////////////////////////////////////////function signature////////////////////////////////Argument
+        //we have to listen return value. Gives two return values one is bool (successfull or not), another return value if the given func have any 
+        (bool success,)=(address(parentContract)).call{value:msg.value}(abi.encodeWithSignature("triggerPayment(uint256)",index));
+
+        require(success,"Tx is not successfull.Cancelling transaction");
         pricePaid+=msg.value;
     }
 }
 
 contract ItemManager is Ownable{
-    enum supplyChainState{created,paid,deliverd}
+    enum SupplyChainState{Created,Paid,Deliverd}
 
     struct S_Item{
-        Item _item;
         string _identifier;
         uint _itemPrice;
-        supplyChainState _state;
+        Item _item;
+        SupplyChainState _state;
     }
 
-    mapping(uint => S_Item) public items;
     uint itemIndex;
+    mapping (uint => S_Item) public items;
 
-    event supplyChainStep(uint _itemIndex,uint _state,address _itemAddress);
+    event SupplyChainStep(uint _itemIndex,uint _step, address _itemAddress);
 
-    function createItem(string memory _identifier , uint _itemPrice) public onlyOwner {
-        itemIndex++;
-        Item item = new Item(this,itemIndex,_itemPrice);
+   
+
+    function createItem(string memory _identifier, uint _itemPrice) public onlyOwner {
+        Item item = new Item(this,_itemPrice,itemIndex);
         items[itemIndex]._item = item;
         items[itemIndex]._identifier = _identifier;
         items[itemIndex]._itemPrice = _itemPrice;
-        items[itemIndex]._state = supplyChainState.created;
-        emit supplyChainStep( itemIndex,uint(items[itemIndex]._state),address(items[itemIndex]._item));
+        items[itemIndex]._state = SupplyChainState.Created;
+        emit SupplyChainStep(itemIndex, uint(items[itemIndex]._state),address(items[itemIndex]._item));
+        itemIndex++;
     }
 
     function triggerPayment(uint _itemIndex) public payable{
-        require(items[_itemIndex]._itemPrice == msg.value,"We except full payment");
-        require(items[_itemIndex]._state == supplyChainState.created, "Amount of this item already paid or item is deliverd");
-        items[_itemIndex]._state = supplyChainState.paid;
-        emit supplyChainStep( itemIndex,uint(items[itemIndex]._state),address(items[itemIndex]._item));
+        require(items[_itemIndex]._itemPrice == msg.value,"pay the full amount");
+        require(items[_itemIndex]._state == SupplyChainState.Created,"Item is further in chains");
+
+        items[_itemIndex]._state = SupplyChainState.Paid;
+        emit SupplyChainStep(_itemIndex, uint(items[_itemIndex]._state),address(items[_itemIndex]._item));
+
     }
 
     function triggerDelivery(uint _itemIndex) public onlyOwner{
-        require(items[_itemIndex]._state == supplyChainState.paid,"Amount for this item is not paid or item is already deliverd");
-        items[_itemIndex]._state = supplyChainState.deliverd;
-        emit supplyChainStep( itemIndex,uint(items[itemIndex]._state),address(items[itemIndex]._item));
+        require(items[_itemIndex]._state == SupplyChainState.Paid,"Item is further in chains");
+
+        items[_itemIndex]._state = SupplyChainState.Deliverd;
+        emit SupplyChainStep(_itemIndex, uint(items[_itemIndex]._state),address(items[_itemIndex]._item));
+
     }
-    
     
 }
